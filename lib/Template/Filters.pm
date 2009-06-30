@@ -24,6 +24,7 @@ use warnings;
 use locale;
 use base 'Template::Base';
 use Template::Constants;
+use Scalar::Util 'blessed';
 
 our $VERSION   = 2.86;
 our $AVAILABLE = { };
@@ -46,6 +47,7 @@ our $FILTERS = {
     'html_break'      => \&html_para_break,
     'html_para_break' => \&html_para_break,
     'html_line_break' => \&html_line_break,
+    'xml'             => \&xml_filter,
     'uri'             => \&uri_filter,
     'url'             => \&url_filter,
     'upper'           => sub { uc $_[0] },
@@ -113,7 +115,7 @@ sub fetch {
     # non-refs are assumed to be regular name lookups
 
     if (ref $name) {
-        if (UNIVERSAL::isa($name, $PLUGIN_FILTER)) {
+        if (blessed($name) && $name->isa($PLUGIN_FILTER)) {
             $factory = $name->factory()
                 || return $self->error($name->error());
         }
@@ -271,7 +273,7 @@ sub uri_filter {
         map { ( chr($_), sprintf("%%%02X", $_) ) } (0..255),
     };
 
-    if ($] >= 5.008) {
+    if ($] >= 5.008 && utf8::is_utf8($text)) {
         utf8::encode($text);
     }
     
@@ -296,7 +298,7 @@ sub url_filter {
         map { ( chr($_), sprintf("%%%02X", $_) ) } (0..255),
     };
 
-    if ($] >= 5.008) {
+    if ($] >= 5.008 && utf8::is_utf8($text)) {
         utf8::encode($text);
     }
     
@@ -319,6 +321,26 @@ sub html_filter {
         s/</&lt;/g;
         s/>/&gt;/g;
         s/"/&quot;/g;
+    }
+    return $text;
+}
+
+
+#------------------------------------------------------------------------
+# xml_filter()                                           [% FILTER xml %]
+#
+# Same as the html filter, but adds the conversion of ' to &apos; which
+# is native to XML.
+#------------------------------------------------------------------------
+
+sub xml_filter {
+    my $text = shift;
+    for ($text) {
+        s/&/&amp;/g;
+        s/</&lt;/g;
+        s/>/&gt;/g;
+        s/"/&quot;/g;
+        s/'/&apos;/g;
     }
     return $text;
 }
@@ -377,21 +399,25 @@ sub html_line_break  {
 # modules can't be located.
 #------------------------------------------------------------------------
 
+sub use_html_entities {
+    require HTML::Entities;
+    return ($AVAILABLE->{ HTML_ENTITY } = \&HTML::Entities::encode_entities);
+}
+
+sub use_apache_util {
+    require Apache::Util;
+    Apache::Util::escape_html('');      # TODO: explain this
+    return ($AVAILABLE->{ HTML_ENTITY } = \&Apache::Util::escape_html);
+}
+
 sub html_entity_filter_factory {
     my $context = shift;
     my $haz;
     
     # if Apache::Util is installed then we use escape_html
     $haz = $AVAILABLE->{ HTML_ENTITY } 
-       ||= eval { 
-             require Apache::Util;  
-             Apache::Utils::escape_html(''); 
-             \&Apache::Util::escape_html 
-           }
-       ||  eval { 
-             require HTML::Entities;
-             \&HTML::Entities::encode_entities 
-           }
+       ||  eval { use_apache_util()   }
+       ||  eval { use_html_entities() }
        ||  -1;      # we use -1 for "not available" because it's a true value
 
     return ref $haz eq 'CODE'
@@ -686,6 +712,24 @@ that occurred.
 
 When the C<TOLERANT> option is set, errors are automatically downgraded to
 a C<STATUS_DECLINE> response.
+
+=head2 use_html_entities()
+
+This class method can be called to configure the C<html_entity> filter to use
+the L<HTML::Entities> module. An error will be raised if it is not installed
+on your system.
+
+    use Template::Filters;
+    Template::Filters->use_html_entities();
+
+=head2 use_apache_util()
+
+This class method can be called to configure the C<html_entity> filter to use
+the L<Apache::Util> module. An error will be raised if it is not installed on
+your system.
+
+    use Template::Filters;
+    Template::Filters->use_apache_util();
 
 =head1 CONFIGURATION OPTIONS
 

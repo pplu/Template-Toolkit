@@ -13,7 +13,7 @@
 # This is free software; you can redistribute it and/or modify it
 # under the same terms as Perl itself.
 #
-# $Id: iterator.t 70 2000-11-14 15:54:58Z abw $
+# $Id: iterator.t 1217 2009-05-21 07:37:15Z abw $
 #
 #========================================================================
 
@@ -56,6 +56,30 @@ ok( $i1->get_next()  eq 'bar' );
 $rest = $i1->get_all();
 ok( scalar @$rest == 5 );
 
+# get_all with a few values in the iterator
+my $i2 = Template::Iterator->new($data);
+($rest, $err) = $i2->get_all();
+is( scalar @$rest, 7 );
+ok( ! $err);
+($val, $err) = $i2->get_all();
+ok( ! $val);
+is( $err, Template::Constants::STATUS_DONE );
+
+# get_all with a single value.
+my $i3 = Template::Iterator->new(['foo']);
+($rest, $err) = $i3->get_all();
+is( scalar @$rest, 1 );
+is( pop @$rest, 'foo' );
+ok( ! $err);
+($val, $err) = $i3->get_all();
+ok( ! $val);
+is( $err, Template::Constants::STATUS_DONE );
+
+# get_all with an empty array
+my $i4 = Template::Iterator->new([]);
+($val, $err) = $i4->get_all();
+ok( ! $val);
+is( $err, Template::Constants::STATUS_DONE );
 
 test_expect(\*DATA, { POST_CHOMP => 1 }, $vars);
 
@@ -139,3 +163,20 @@ End of list
 foo<-[bar]->baz
 bar<-[baz]->qux
 baz<-[qux]
+
+-- test --
+-- name test even/odd/parity --
+[% FOREACH item IN [1..10] -%]
+* [% loop.count %] [% loop.odd %] [% loop.even %] [% loop.parity +%]
+[% END -%]
+-- expect --
+* 1 1 0 odd
+* 2 0 1 even
+* 3 1 0 odd
+* 4 0 1 even
+* 5 1 0 odd
+* 6 0 1 even
+* 7 1 0 odd
+* 8 0 1 even
+* 9 1 0 odd
+* 10 0 1 even

@@ -473,6 +473,30 @@ objects.
         },
     }); 
 
+=head2 VIEWS
+
+The VIEWS option can be used to define one or more L<Template::View>
+objects.  They can be specified as a reference to a hash array or list 
+reference.
+
+    my $template = Template->new({
+        VIEWS => {
+            my_view => { prefix => 'my_templates/' },
+        },
+    });
+
+Be aware of the fact that Perl's hash array are unordered, so if you want to 
+specify multiple views of which one or more are based on other views, then
+you should use a list reference to preserve the order of definition.
+
+    my $template = Template->new({
+        VIEWS => [
+            bottom => { prefix => 'bottom/' },
+            middle => { prefix => 'middle/', base => 'bottom' },
+            top    => { prefix => 'top/',    base => 'middle' },
+        ],
+    });
+
 =head2 AUTO_RESET
 
 The C<AUTO_RESET> option is set by default and causes the local C<BLOCKS>
@@ -1144,6 +1168,20 @@ L<Template> L<process()|Template#process()> method.
 This example will read the input files F</tmp/src/foo.html> and 
 F</tmp/src/bar.html> and write the processed output to F</tmp/dest/foo.html>
 and F</tmp/dest/bar.html>, respectively.
+
+=head2 STRICT
+
+By default the Template Toolkit will silently ignore the use of undefined
+variables (a bad design decision that I regret).
+
+When the C<STRICT> option is set, the use of any undefined variables or 
+values will cause an exception to be throw.  The exception will have a 
+C<type> of C<var.undefined> and a message of the form 
+"undefined variable: xxx".
+
+    my $template = Template->new(
+        STRICT => 1
+    );
 
 =head2 DEBUG
 

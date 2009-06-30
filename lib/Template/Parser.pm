@@ -103,7 +103,7 @@ our $CHOMP_FLAGS  = qr/[-=~+]/;
 
 sub new {
     my $class  = shift;
-    my $config = $_[0] && UNIVERSAL::isa($_[0], 'HASH') ? shift(@_) : { @_ };
+    my $config = $_[0] && ref($_[0]) eq 'HASH' ? shift(@_) : { @_ };
     my ($tagstyle, $debug, $start, $end, $defaults, $grammar, $hash, $key, $udef);
 
     my $self = bless { 
@@ -320,7 +320,7 @@ sub split_text {
                 if ($chomp && $pre) {
                     # chomp off whitespace and newline preceding directive
                     if ($chomp == CHOMP_ALL) { 
-                        $pre =~ s{ (\n|^) [^\S\n]* \z }{}mx;
+                        $pre =~ s{ (\r?\n|^) [^\S\n]* \z }{}mx;
                     }
                     elsif ($chomp == CHOMP_COLLAPSE) { 
                         $pre =~ s{ (\s+) \z }{ }x;
@@ -566,8 +566,14 @@ sub tokenise_directive {
             $type = 'FILENAME';
         }
         elsif (defined($token = $6)) {
-            # reserved words may be in lower case unless case sensitive
-            $uctoken = $anycase ? uc $token : $token;
+            # Fold potential keywords to UPPER CASE if the ANYCASE option is
+            # set, unless (we've got some preceeding tokens and) the previous
+            # token is a DOT op.  This prevents the 'last' in 'data.last'
+            # from being interpreted as the LAST keyword.
+            $uctoken = 
+                ($anycase && (! @tokens || $tokens[-2] ne 'DOT'))
+                    ? uc $token
+                    :    $token;
             if (defined ($type = $lextable->{ $uctoken })) {
                 $token = $uctoken;
             }

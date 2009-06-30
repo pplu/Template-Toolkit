@@ -28,10 +28,16 @@ use Template::Base;
 use Template::Config;
 use Template::Constants;
 use Template::Exception;
+use Scalar::Util 'blessed';
+
+use constant DOCUMENT         => 'Template::Document';
+use constant EXCEPTION        => 'Template::Exception';
+use constant BADGER_EXCEPTION => 'Badger::Exception';
 
 our $VERSION = 2.98;
 our $DEBUG   = 0 unless defined $DEBUG;
 our $DEBUG_FORMAT = "\n## \$file line \$line : [% \$text %] ##\n";
+our $VIEW_CLASS   = 'Template::View';
 our $AUTOLOAD;
 
 #========================================================================
@@ -79,8 +85,8 @@ sub template {
     # CODE references are assumed to be pre-compiled templates and are
     # returned intact
     return $name
-        if UNIVERSAL::isa($name, 'Template::Document')
-            || ref($name) eq 'CODE';
+        if (blessed($name) && $name->isa(DOCUMENT))
+        || ref($name) eq 'CODE';
 
     $shortname = $name;
 
@@ -135,8 +141,8 @@ sub template {
             if ($error) {
                 if ($error == Template::Constants::STATUS_ERROR) {
                     # $template contains exception object
-                    if (UNIVERSAL::isa($template, 'Template::Exception')
-                        && $template->type() eq Template::Constants::ERROR_FILE) {
+                    if (blessed($template) && $template->isa(EXCEPTION)
+                        && $template->type eq Template::Constants::ERROR_FILE) {
                         $self->throw($template);
                     }
                     else {
@@ -261,9 +267,9 @@ sub filter {
 sub view {
     my $self = shift;
     require Template::View;
-    return Template::View->new($self, @_)
+    return $VIEW_CLASS->new($self, @_)
         || $self->throw(&Template::Constants::ERROR_VIEW, 
-                        $Template::View::ERROR);
+                        $VIEW_CLASS->error);
 }
 
 
@@ -322,7 +328,7 @@ sub process {
                 ? { (name => (ref $name ? '' : $name), modtime => time()) }
                 : $compiled;
 
-            if (UNIVERSAL::isa($component, 'Template::Document')) {
+            if (blessed($component) && $component->isa(DOCUMENT)) {
                 $element->{ caller } = $component->{ name };
                 $element->{ callers } = $component->{ callers } || [];
                 push(@{$element->{ callers }}, $element->{ caller });
@@ -334,8 +340,8 @@ sub process {
                 # merge any local blocks defined in the Template::Document
                 # into our local BLOCKS cache
                 @$blocks{ keys %$tblocks } = values %$tblocks
-                    if UNIVERSAL::isa($compiled, 'Template::Document')
-                    && ($tblocks = $compiled->blocks());
+                    if (blessed($compiled) && $compiled->isa(DOCUMENT))
+                    && ($tblocks = $compiled->blocks);
             }
             
             if (ref $compiled eq 'CODE') {
@@ -365,7 +371,7 @@ sub process {
             # instead?
 
             pop(@{$element->{ callers }})
-                if (UNIVERSAL::isa($component, 'Template::Document'));
+                if (blessed($component) && $component->isa(DOCUMENT));
         }
         $stash->set('component', $component);
     };
@@ -421,38 +427,38 @@ sub insert {
 
 
     FILE: foreach $file (@$files) {
-    my $name = $file;
+        my $name = $file;
 
-    if ($^O eq 'MSWin32') {
-        # let C:/foo through
-        $prefix = $1 if $name =~ s/^(\w{2,})://o;
-    }
-    else {
-        $prefix = $1 if $name =~ s/^(\w+)://;
-    }
-
-    if (defined $prefix) {
-        $providers = $self->{ PREFIX_MAP }->{ $prefix } 
-        || return $self->throw(Template::Constants::ERROR_FILE,
-                   "no providers for file prefix '$prefix'");
-    }
-    else {
-        $providers = $self->{ PREFIX_MAP }->{ default }
-        || $self->{ LOAD_TEMPLATES };
-    }
-
-    foreach my $provider (@$providers) {
-        ($text, $error) = $provider->load($name, $prefix);
-        next FILE unless $error;
-        if ($error == Template::Constants::STATUS_ERROR) {
-        $self->throw($text) if ref $text;
-        $self->throw(Template::Constants::ERROR_FILE, $text);
+        if ($^O eq 'MSWin32') {
+            # let C:/foo through
+            $prefix = $1 if $name =~ s/^(\w{2,})://o;
         }
-    }
-    $self->throw(Template::Constants::ERROR_FILE, "$file: not found");
+        else {
+            $prefix = $1 if $name =~ s/^(\w+)://;
+        }
+
+        if (defined $prefix) {
+            $providers = $self->{ PREFIX_MAP }->{ $prefix } 
+                || return $self->throw(Template::Constants::ERROR_FILE,
+                    "no providers for file prefix '$prefix'");
+        }
+        else {
+            $providers = $self->{ PREFIX_MAP }->{ default }
+                || $self->{ LOAD_TEMPLATES };
+        }
+
+        foreach my $provider (@$providers) {
+            ($text, $error) = $provider->load($name, $prefix);
+            next FILE unless $error;
+            if ($error == Template::Constants::STATUS_ERROR) {
+                $self->throw($text) if ref $text;
+                $self->throw(Template::Constants::ERROR_FILE, $text);
+            }
+        }
+        $self->throw(Template::Constants::ERROR_FILE, "$file: not found");
     }
     continue {
-    $output .= $text;
+        $output .= $text;
     }
     return $output;
 }
@@ -490,15 +496,20 @@ sub throw {
     local $" = ', ';
 
     # die! die! die!
-    if (UNIVERSAL::isa($error, 'Template::Exception')) {
-    die $error;
+    if (blessed($error) && $error->isa(EXCEPTION)) {
+        die $error;
+    }
+    elsif (blessed($error) && $error->isa(BADGER_EXCEPTION)) {
+        # convert a Badger::Exception to a Template::Exception so that
+        # things continue to work during the transition to Badger
+        die EXCEPTION->new($error->type, $error->info);
     }
     elsif (defined $info) {
-    die (Template::Exception->new($error, $info, $output));
+        die (EXCEPTION->new($error, $info, $output));
     }
     else {
-    $error ||= '';
-    die (Template::Exception->new('undef', $error, $output));
+        $error ||= '';
+        die (EXCEPTION->new('undef', $error, $output));
     }
 
     # not reached
@@ -527,12 +538,13 @@ sub throw {
 sub catch {
     my ($self, $error, $output) = @_;
 
-    if (UNIVERSAL::isa($error, 'Template::Exception')) {
-    $error->text($output) if $output;
-    return $error;
+    if ( blessed($error) 
+      && ( $error->isa(EXCEPTION) || $error->isa(BADGER_EXCEPTION) ) ) {
+        $error->text($output) if $output;
+        return $error;
     }
     else {
-    return Template::Exception->new('undef', $error, $output);
+        return EXCEPTION->new('undef', $error, $output);
     }
 }
 
@@ -633,6 +645,49 @@ sub define_filter {
     }
     $self->throw(&Template::Constants::ERROR_FILTER, 
          "FILTER providers declined to store filter $name");
+}
+
+sub define_view {
+    my ($self, $name, $params) = @_;
+    my $base;
+
+    if (defined $params->{ base }) {
+        my $base = $self->{ STASH }->get($params->{ base });
+
+        return $self->throw(
+            &Template::Constants::ERROR_VIEW, 
+            "view base is not defined: $params->{ base }"
+        ) unless $base;
+
+        return $self->throw(
+            &Template::Constants::ERROR_VIEW, 
+            "view base is not a $VIEW_CLASS object: $params->{ base } => $base"
+        ) unless blessed($base) && $base->isa($VIEW_CLASS);
+        
+        $params->{ base } = $base;
+    }
+    my $view = $self->view($params);
+    $view->seal();
+    $self->{ STASH }->set($name, $view);
+}
+
+sub define_views {
+    my ($self, $views) = @_;
+    
+    # a list reference is better because the order is deterministic (and so
+    # allows an earlier VIEW to be the base for a later VIEW), but we'll 
+    # accept a hash reference and assume that the user knows the order of
+    # processing is undefined
+    $views = [ %$views ] 
+        if ref $views eq 'HASH';
+    
+    # make of copy so we don't destroy the original list reference
+    my @items = @$views;
+    my ($name, $view);
+    
+    while (@items) {
+        $self->define_view(splice(@items, 0, 2));
+    }
 }
 
 
@@ -803,6 +858,7 @@ sub _init {
         $predefs->{ _DEBUG } = ( ($config->{ DEBUG } || 0)
                                  & &Template::Constants::DEBUG_UNDEF ) ? 1 : 0
                                  unless defined $predefs->{ _DEBUG };
+        $predefs->{ _STRICT } = $config->{ STRICT };
         
         Template::Config->stash($predefs)
             || return $self->error($Template::Config::ERROR);
@@ -820,6 +876,10 @@ sub _init {
         } 
         keys %$blocks
     };
+
+    # define any VIEWS
+    $self->define_views( $config->{ VIEWS } )
+        if $config->{ VIEWS };
 
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     # RECURSION - flag indicating is recursion into templates is supported
@@ -1058,6 +1118,19 @@ a default set of template blocks.
         },
     }); 
 
+=head3 VIEWS
+
+The L<VIEWS|Template::Manual::Config#VIEWS> option can be used to pre-define 
+one or more L<Template::View> objects.
+
+    my $context = Template::Context->new({
+        VIEWS => [
+            bottom => { prefix => 'bottom/' },
+            middle => { prefix => 'middle/', base => 'bottom' },
+            top    => { prefix => 'top/',    base => 'middle' },
+        ],
+    });
+
 =head3 TRIM
 
 The L<TRIM|Template::Manual::Config#TRIM> option can be set to have any
@@ -1284,6 +1357,57 @@ subroutine. The optional third argument can be set to any true value to
 indicate that the subroutine is a dynamic filter factory. 
 
 Returns a true value or throws a 'C<filter>' exception on error.
+
+=head2 define_view($name, \%params)
+
+This method allows you to define a named L<view|Template::View>.
+
+    $context->define_view( 
+        my_view => { 
+            prefix => 'my_templates/' 
+        } 
+    );
+
+The view is then accessible as a template variable.
+
+    [% my_view.print(some_data) %]
+
+=head2 define_views($views)
+
+This method allows you to define multiple named L<views|Template::View>.
+A reference to a hash array or list reference should be passed as an argument.
+
+    $context->define_view({     # hash reference
+        my_view_one => { 
+            prefix => 'my_templates_one/' 
+        },
+        my_view_two => { 
+            prefix => 'my_templates_two/' 
+        } 
+    });
+
+If you're defining multiple views of which one or more are based on other 
+views in the same definition then you should pass them as a list reference.
+This ensures that they get created in the right order (Perl does not preserve
+the order of items defined in a hash reference so you can't guarantee that
+your base class view will be defined before your subclass view).
+
+    $context->define_view([     # list referenence
+        my_view_one => {
+            prefix => 'my_templates_one/' 
+        },
+        my_view_two => { 
+            prefix => 'my_templates_two/' ,
+            base   => 'my_view_one',
+        } 
+    ]);
+
+The views are then accessible as template variables.
+
+    [% my_view_one.print(some_data) %]
+    [% my_view_two.print(some_data) %]
+
+See also the L<VIEWS> option.
 
 =head2 localise(\%vars)
 

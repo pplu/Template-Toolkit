@@ -22,11 +22,14 @@ package Template::Stash;
 use strict;
 use warnings;
 use Template::VMethods;
-use Scalar::Util 'blessed';
+use Template::Exception;
+use Scalar::Util qw( blessed reftype );
 
-our $VERSION = 2.91;
-our $DEBUG   = 0 unless defined $DEBUG;
-our $PRIVATE = qr/^[_.]/;
+our $VERSION    = 2.91;
+our $DEBUG      = 0 unless defined $DEBUG;
+our $PRIVATE    = qr/^[_.]/;
+our $UNDEF_TYPE = 'var.undef';
+our $UNDEF_INFO = 'undefined variable: %s';
 
 # alias _dotop() to dotop() so that we have a consistent method name
 # between the Perl and XS stash implementations
@@ -148,7 +151,7 @@ sub clone {
 
     # look out for magical 'import' argument which imports another hash
     my $import = $params->{ import };
-    if (defined $import && UNIVERSAL::isa($import, 'HASH')) {
+    if (defined $import && ref $import eq 'HASH') {
         delete $params->{ import };
     }
     else {
@@ -225,7 +228,9 @@ sub get {
         $result = $self->_dotop($root, $ident, $args);
     }
 
-    return defined $result ? $result : $self->undefined($ident, $args);
+    return defined $result 
+        ? $result 
+        : $self->undefined($ident, $args);
 }
 
 
@@ -332,7 +337,7 @@ sub update {
 
     # look out for magical 'import' argument to import another hash
     my $import = $params->{ import };
-    if (defined $import && UNIVERSAL::isa($import, 'HASH')) {
+    if (defined $import && ref $import eq 'HASH') {
         @$self{ keys %$import } = values %$import;
         delete $params->{ import };
     }
@@ -349,8 +354,39 @@ sub update {
 #------------------------------------------------------------------------
 
 sub undefined {
-    my ($self, $ident, $args);
-    return '';
+    my ($self, $ident, $args) = @_;
+
+    if ($self->{ _STRICT }) {
+        # Sorry, but we can't provide a sensible source file and line without
+        # re-designing the whole architecure of TT (see TT3)
+        die Template::Exception->new(
+            $UNDEF_TYPE, 
+            sprintf(
+                $UNDEF_INFO, 
+                $self->_reconstruct_ident($ident)
+            )
+        ) if $self->{ _STRICT };
+    }
+    else {
+        # There was a time when I thought this was a good idea. But it's not.
+        return '';
+    }
+}
+
+sub _reconstruct_ident {
+    my ($self, $ident) = @_;
+    my ($name, $args, @output);
+    my @input = ref $ident eq 'ARRAY' ? @$ident : ($ident);
+
+    while (@input) {
+        $name = shift @input;
+        $args = shift @input || 0;
+        $name .= '(' . join(', ', map { /^\d+$/ ? $_ : "'$_'" } @$args) . ')'
+            if $args && ref $args eq 'ARRAY';
+        push(@output, $name);
+    }
+    
+    return join('.', @output);
 }
 
 
@@ -445,7 +481,9 @@ sub _dotop {
     # doesn't appear to work with CGI, returning true for the first call
     # and false for all subsequent calls. 
     
-    elsif (ref($root) && UNIVERSAL::can($root, 'can')) {
+    # UPDATE: that doesn't appear to be the case any more
+    
+    elsif (blessed($root) && $root->can('can')) {
 
         # if $root is a blessed reference (i.e. inherits from the 
         # UNIVERSAL object base class) then we call the item as a method.
@@ -463,7 +501,7 @@ sub _dotop {
             die $@ if ref($@) || ($@ !~ /Can't locate object method "\Q$item\E" via package "\Q$class\E"/);
 
             # failed to call object method, so try some fallbacks
-            if (UNIVERSAL::isa($root, 'HASH') ) {
+            if (reftype $root eq 'HASH') {
                 if( defined($value = $root->{ $item })) {
                     return $value unless ref $value eq 'CODE';      ## RETURN
                     @result = &$value(@$args);
@@ -475,7 +513,7 @@ sub _dotop {
                     @result = &$value([$root], @$args);
                 }
             }
-            elsif (UNIVERSAL::isa($root, 'ARRAY') ) {
+            elsif (reftype $root eq 'ARRAY') {
                 if( $value = $LIST_OPS->{ $item }) {
                    @result = &$value($root, @$args);
                 }
@@ -569,7 +607,7 @@ sub _assign {
         return ($root->[$item] = $value)            ## RETURN
             unless $default && $root->{ $item };
     }
-    elsif (UNIVERSAL::isa($root, 'UNIVERSAL')) {
+    elsif (blessed($root)) {
         # try to call the item as a method of an object
         
         return $root->$item(@$args, $value)         ## RETURN

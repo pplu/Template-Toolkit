@@ -10,7 +10,7 @@
 #   Andy Wardley   <abw@wardley.org>
 #
 # COPYRIGHT
-#   Copyright (C) 1996-2007 Andy Wardley.  All Rights Reserved.
+#   Copyright (C) 1996-2009 Andy Wardley.  All Rights Reserved.
 #
 #   This module is free software; you can redistribute it and/or
 #   modify it under the same terms as Perl itself.
@@ -29,8 +29,9 @@ use Template::Provider;
 use Template::Service;
 use File::Basename;
 use File::Path;
+use Scalar::Util qw(blessed);
 
-our $VERSION = '2.20';
+our $VERSION = '2.21';
 our $ERROR   = '';
 our $DEBUG   = 0;
 our $BINMODE = 0 unless defined $BINMODE;
@@ -51,7 +52,7 @@ Template::Config->preload() if $ENV{ MOD_PERL };
 sub process {
     my ($self, $template, $vars, $outstream, @opts) = @_;
     my ($output, $error);
-    my $options = (@opts == 1) && UNIVERSAL::isa($opts[0], 'HASH')
+    my $options = (@opts == 1) && ref($opts[0]) eq 'HASH'
         ? shift(@opts) : { @opts };
 
     $options->{ binmode } = $BINMODE
@@ -170,7 +171,7 @@ sub _output {
     }
     # call the print() method on an object that implements the method
     # (e.g. IO::Handle, Apache::Request, etc)
-    elsif (UNIVERSAL::can($where, 'print')) {
+    elsif (blessed($where) && $where->can('print')) {
         $where->print($$textref);
     }
     # a simple string is taken as a filename
@@ -894,11 +895,11 @@ Andy Wardley E<lt>abw@wardley.orgE<gt> L<http://wardley.org/>
 
 =head1 VERSION
 
-Template Toolkit version 2.20, released August 2008.
+Template Toolkit version 2.20_1, released April 2009.
 
 =head1 COPYRIGHT
 
-Copyright (C) 1996-2008 Andy Wardley.  All Rights Reserved.
+Copyright (C) 1996-2009 Andy Wardley.  All Rights Reserved.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
