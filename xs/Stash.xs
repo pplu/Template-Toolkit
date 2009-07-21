@@ -142,6 +142,14 @@ static TT_RET tt_fetch_item(pTHX_ SV *root, SV *key_sv, AV *args, SV **result) {
     char *key = SvPV(key_sv, key_len);
     SV **value = NULL;
 
+#ifndef WIN32
+    debug("fetch item: %s\n", key);
+#endif
+
+    /* negative key_len is used to indicate UTF8 string */
+    if (SvUTF8(key_sv))
+        key_len = -key_len;
+    
     if (!SvROK(root)) 
         return TT_RET_UNDEF;
     
@@ -478,6 +486,10 @@ static SV *assign(pTHX_ SV *root, SV *key_sv, AV *args, SV *value, int flags) {
     debug("assign(%s)\n", key2);
 #endif
 
+    /* negative key_len is used to indicate UTF8 string */
+    if (SvUTF8(key_sv))
+        key_len = -key_len;
+
     if (!root || !SvOK(key_sv) || key_sv == &PL_sv_undef || looks_private(aTHX_ key)) {
         /* ignore _private or .private members */
         return &PL_sv_undef;
@@ -628,7 +640,7 @@ static SV *call_coderef(pTHX_ SV *code, AV *args) {
     PUTBACK;
     count = call_sv(code, G_ARRAY);
     SPAGAIN;
-    
+
     return fold_results(aTHX_ count);
 }
 
@@ -814,19 +826,25 @@ static TT_RET list_op(pTHX_ SV *root, char *key, AV *args, SV **result) {
 
     /* look for and execute XS version first */
     if ((a = find_xs_op(key)) && a->list_f) {
+#ifndef WIN32
         debug("calling internal list vmethod: %s\n", key);
+#endif
         *result = a->list_f(aTHX_ (AV *) SvRV(root), args);
         return TT_RET_CODEREF;
     }
 
     /* look for and execute perl version in Template::Stash module */
     if ((code = find_perl_op(aTHX_ key, TT_LIST_OPS))) {
+#ifndef WIN32
         debug("calling perl list vmethod: %s\n", key);
+#endif
         *result = call_coderef(aTHX_ code, mk_mortal_av(aTHX_ root, args, NULL));
         return TT_RET_CODEREF;
     }
 
+#ifndef WIN32
     debug("list vmethod not found: %s\n", key);
+#endif
 
     /* not found */
     *result = &PL_sv_undef;
