@@ -617,10 +617,12 @@ there is no drop-through between C<CASE> statements.
 =head2 FOREACH
 
 The C<FOREACH> directive will iterate through the items in a list, processing
-the enclosed block for each one.
+the enclosed block for each one. Optionally it can execute a block of code if
+the list is empty.
 
     [% foo   = 'Foo'
        items = [ 'one', 'two', 'three' ]
+       no_items = [ ]
     %]
     
     Things:
@@ -631,6 +633,13 @@ the enclosed block for each one.
     Items:
     [% FOREACH i IN items %]
        * [% i %]
+    [% END %]
+
+    No Items:
+    [% FOREACH i IN no_items %]
+       * [% i %]
+    [% ELSE %]
+       There are no items in the list
     [% END %]
     
     Stuff:
@@ -650,6 +659,9 @@ output:
       * one
       * two
       * three
+
+    No Items:
+      There are no items in the list
     
     Stuff:
       * Foo
