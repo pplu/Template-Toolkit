@@ -647,3 +647,23 @@ last outer
 4: 1 2 3 
 5: 1 2 3 
 6: 1 2 3 
+-- test --
+-- name FOR/ELSE_1 --
+[% FOR i IN [1..6]; "$i "; ELSE; 'NOTHING'; END %]
+-- expect --
+1 2 3 4 5 6 
+-- test --
+-- name FOR/ELSE_2 --
+[% FOR i IN []; "$i "; ELSE; 'NOTHING'; END %]
+-- expect --
+NOTHING
+-- test --
+-- name FOR/ELSE_3 --
+[% FOR i IN []; "$i "; ELSE; 'NOTHING'; ' MORE'; END %]
+-- expect --
+NOTHING MORE
+-- test --
+-- name FOR/ELSE_4 --
+[% h = 1 %][% FOR i IN []; "$i "; ELSE %][% h = h + 1%][% h %][% h %][% END %]
+-- expect --
+22

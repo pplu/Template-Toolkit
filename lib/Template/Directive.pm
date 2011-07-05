@@ -394,10 +394,11 @@ sub if {
 #------------------------------------------------------------------------
 
 sub foreach {
-    my ($class, $target, $list, $args, $block, $label) = @_;
+    my ($class, $target, $list, $args, $block, $else, $label) = @_;
     $args  = shift @$args;
     $args  = @$args ? ', { ' . join(', ', @$args) . ' }' : '';
     $label ||= 'LOOP';
+    $else ||= '';
 
     my ($loop_save, $loop_set, $loop_restore, $setiter);
     if ($target) {
@@ -430,12 +431,17 @@ do {
     (\$_tt_value, \$_tt_error) = \$_tt_list->get_first();
     $loop_save;
     \$stash->set('loop', \$_tt_list);
+    
     eval {
+       if (not defined \$_tt_list->size() or \$_tt_list->size() == 0) {
+$else;
+       } else {
 $label:   while (! \$_tt_error) {
             $loop_set;
 $block;
             (\$_tt_value, \$_tt_error) = \$_tt_list->get_next();
         }
+      }
     };
     $loop_restore;
     die \$@ if \$@;
